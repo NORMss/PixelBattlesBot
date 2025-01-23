@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PixelBattles Advanced API Painter with Matrix and Modes
 // @namespace    http://tampermonkey.net/
-// @version      1.6
+// @version      1.9
 // @description  Автоматическое закрашивание пикселей с использованием матрицы или от угла к углу
 // @author       YourName
 // @match        https://pixelbattles.ru/*
@@ -23,8 +23,12 @@
     let isScriptRunning = false; // Флаг работы скрипта
     let token = getTokenFromCookie() || ""; // Токен
     let matrix = []; // Матрица для рисования
-    let startX = 0; // Стартовая точка X для матрицы
-    let startY = 0; // Стартовая точка Y для матрицы
+    let startX = 0; // Начальная точка X для матрицы
+    let startY = 0; // Начальная точка Y для матрицы
+    let reverseDirection = false; // Режим обратного направления
+
+    let currentX = null; // Текущая координата X
+    let currentY = null; // Текущая координата Y
 
     // Режим работы (matrix или corner-to-corner)
     let mode = "corner-to-corner";
@@ -58,11 +62,14 @@
                 <option value="matrix">Матрица</option>
             </select>
         </label><br>
+        <label>Обратное направление: <input type="checkbox" id="reverseDirection"></label><br>
         <div id="cornerToCornerSettings">
             <label>X1: <input type="number" id="x1" value="0" style="width: 60px;"></label><br>
             <label>Y1: <input type="number" id="y1" value="0" style="width: 60px;"></label><br>
             <label>X2: <input type="number" id="x2" value="10" style="width: 60px;"></label><br>
             <label>Y2: <input type="number" id="y2" value="10" style="width: 60px;"></label><br>
+            <label>Текущая точка X: <input type="number" id="currentX" value="" style="width: 60px;"></label><br>
+            <label>Текущая точка Y: <input type="number" id="currentY" value="" style="width: 60px;"></label><br>
             <label>Цвет по умолчанию:
                 <select id="colorSelector">
                     ${colors.map(color => `<option value="${color}">${color}</option>`).join('')}
@@ -75,6 +82,8 @@
             </label><br>
             <label>Начальная точка X: <input type="number" id="matrixStartX" value="0" style="width: 60px;"></label><br>
             <label>Начальная точка Y: <input type="number" id="matrixStartY" value="0" style="width: 60px;"></label><br>
+            <label>Текущая точка X: <input type="number" id="matrixCurrentX" value="" style="width: 60px;"></label><br>
+            <label>Текущая точка Y: <input type="number" id="matrixCurrentY" value="" style="width: 60px;"></label><br>
         </div>
         <button id="startPainting">Начать рисование</button>
         <button id="stopPainting">Остановить скрипт</button>
@@ -86,6 +95,10 @@
         mode = e.target.value;
         document.getElementById('cornerToCornerSettings').style.display = mode === "corner-to-corner" ? "block" : "none";
         document.getElementById('matrixSettings').style.display = mode === "matrix" ? "block" : "none";
+    });
+
+    document.getElementById('reverseDirection').addEventListener('change', (e) => {
+        reverseDirection = e.target.checked;
     });
 
     document.getElementById('colorSelector').addEventListener('change', (e) => {
@@ -111,6 +124,8 @@
             const y1 = parseInt(document.getElementById('y1').value);
             const x2 = parseInt(document.getElementById('x2').value);
             const y2 = parseInt(document.getElementById('y2').value);
+            currentX = document.getElementById('currentX').value ? parseInt(document.getElementById('currentX').value) : null;
+            currentY = document.getElementById('currentY').value ? parseInt(document.getElementById('currentY').value) : null;
 
             isScriptRunning = true;
             startCornerToCornerPainting(x1, y1, x2, y2);
@@ -122,6 +137,8 @@
                 }
                 startX = parseInt(document.getElementById('matrixStartX').value);
                 startY = parseInt(document.getElementById('matrixStartY').value);
+                currentX = document.getElementById('matrixCurrentX').value ? parseInt(document.getElementById('matrixCurrentX').value) : null;
+                currentY = document.getElementById('matrixCurrentY').value ? parseInt(document.getElementById('matrixCurrentY').value) : null;
 
                 isScriptRunning = true;
                 startMatrixPainting();
@@ -168,16 +185,20 @@
 
     // Режим "от угла к углу"
     async function startCornerToCornerPainting(x1, y1, x2, y2) {
-        for (let x = x1; x <= x2 && isScriptRunning; x++) {
-            for (let y = y1; y <= y2 && isScriptRunning; y++) {
-                const response = await placePixelAPI(x, y, selectedColor);
-                //if (response?.status !== "ok") {
-                //    console.warn(`Пропуск ячейки (${x}, ${y}) из-за ошибки.`);
-                //    continue;
-                //}
+        const xs = reverseDirection ? [x2, x1 - 1, -1] : [x1, x2 + 1, 1];
+        const ys = reverseDirection ? [y2, y1 - 1, -1] : [y1, y2 + 1, 1];
 
+        let startX = currentX !== null ? currentX : xs[0];
+        let startY = currentY !== null ? currentY : ys[0];
+
+        for (let x = startX; x !== xs[1] && isScriptRunning; x += xs[2]) {
+            for (let y = startY; y !== ys[1] && isScriptRunning; y += ys[2]) {
+                const response = await placePixelAPI(x, y, selectedColor);
+                currentX = x;
+                currentY = y;
                 await new Promise(resolve => setTimeout(resolve, 2000)); // Интервал 2 секунды только при успехе
             }
+            startY = ys[0]; // Сбрасываем стартовую координату Y после первого ряда
         }
 
         if (!isScriptRunning) {
@@ -190,8 +211,14 @@
 
     // Режим "матрица"
     async function startMatrixPainting() {
-        for (let y = 0; y < matrix.length && isScriptRunning; y++) {
-            for (let x = 0; x < matrix[y].length && isScriptRunning; x++) {
+        const ys = reverseDirection ? [matrix.length - 1, -1, -1] : [0, matrix.length, 1];
+        const xs = reverseDirection ? [matrix[0].length - 1, -1, -1] : [0, matrix[0].length, 1];
+
+        let startRow = currentY !== null ? currentY - startY : ys[0];
+        let startCol = currentX !== null ? currentX - startX : xs[0];
+
+        for (let y = startRow; y !== ys[1] && isScriptRunning; y += ys[2]) {
+            for (let x = startCol; x !== xs[1] && isScriptRunning; x += xs[2]) {
                 const color = matrix[y][x];
 
                 if (color === "skip") {
@@ -199,13 +226,11 @@
                 }
 
                 const response = await placePixelAPI(startX + x, startY + y, color);
-                //if (response?.status !== "ok") {
-                //    console.warn(`Пропуск ячейки (${startX + x}, ${startY + y}) из-за ошибки.`);
-                //    continue;
-                //}
-
+                currentX = startX + x;
+                currentY = startY + y;
                 await new Promise(resolve => setTimeout(resolve, 2000)); // Интервал 2 секунды только при успехе
             }
+            startCol = xs[0]; // Сбрасываем стартовую колонку после первого ряда
         }
 
         if (!isScriptRunning) {

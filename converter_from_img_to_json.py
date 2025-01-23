@@ -79,9 +79,9 @@ def generate_image_from_matrix(color_matrix, output_image_path, skip_color="#fff
     print(f"Изображение сохранено в файл {output_image_path}")
 
 # Пример использования
-image_path = "download.png"  # Путь к изображению
-output_json_file = "output.json"  # Путь для сохранения JSON
-output_image_file = "output_image.bmp"  # Путь для сохранения нового изображения
+image_path = "mita.png"  # Путь к изображению
+output_json_file = "output_mita.json"  # Путь для сохранения JSON
+output_image_file = "output_mita.bmp"  # Путь для сохранения нового изображения
 
 matrix, color_matrix = generate_json_from_image(image_path)
 save_json(matrix, output_json_file)
